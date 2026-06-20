@@ -43,7 +43,7 @@ async def claude_ai_handler(message: Message) -> None:
     try:
         # OpenAI formati bo'yicha so'rov yuborish
         response = await client.chat.completions.create(
-            model="anthropic/claude-3-5-sonnet",
+            model="anthropic/claude-3.5-sonnet"
             messages=[{"role": "user", "content": message.text}],
             max_tokens=2000
         )
