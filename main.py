@@ -10,9 +10,9 @@ from aiohttp import web
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# Tokenlar (Render panelida qoladi, ularga tegmang)
+# Tokenlar
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY") # Bu yerda sizning OpenRouter API kalitingiz turibdi
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 
 if not TELEGRAM_TOKEN or not CLAUDE_API_KEY:
     raise ValueError("TELEGRAM_TOKEN yoki CLAUDE_API_KEY topilmadi!")
@@ -20,30 +20,26 @@ if not TELEGRAM_TOKEN or not CLAUDE_API_KEY:
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# MANA SHU YERDA: OpenRouter manzili va kerakli sarlavhalarni ko'rsatamiz
+# OpenRouter uchun standart Anthropic klienti sozlamasi
 claude_client = AsyncAnthropic(
     api_key=CLAUDE_API_KEY,
-    base_url="https://openrouter.ai/api/v1",
-    default_headers={
-        "HTTP-Referer": "https://render.com", # Majburiy emas, lekin OpenRouter uchun yaxshi
-        "X-Title": "Telegram Claude Bot"
-    }
+    base_url="https://openrouter.ai/api/v1"
 )
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     await message.answer(
         f"Salom, {html.bold(message.from_user.full_name)}!\n"
-        f"Men OpenRouter orqali Claude modelida ishlaydigan botman."
+        f"Men OpenRouter orqali Claude modelida ishlaydigan botman. Savolingizni bering!"
     )
 
 @dp.message()
 async def claude_ai_handler(message: Message) -> None:
     waiting_message = await message.answer("💡 <i>O'ylayapman...</i>", parse_mode="HTML")
     try:
-        # OpenRouter'dagi aniq Claude model nomi (Model nomini o'zgartirdik!)
+        # OpenRouter uchun eng aniq va yangi model nomini yozamiz
         response = await claude_client.messages.create(
-            model="anthropic/claude-3.5-sonnet",
+            model="anthropic/claude-sonnet-latest",
             max_tokens=2000,
             messages=[{"role": "user", "content": message.text}]
         )
@@ -51,9 +47,10 @@ async def claude_ai_handler(message: Message) -> None:
         await waiting_message.delete()
         await message.answer(reply_text)
     except Exception as e:
-        logging.error(f"Xatolik: {e}")
+        # Xatolikni Render loglarida aniq ko'rish uchun yozamiz
+        logging.error(f"OpenRouter Xatoligi: {e}")
         await waiting_message.delete()
-        await message.answer("❌ Xatolik yuz berdi. Birozdan so'ng urinib ko'ring.")
+        await message.answer(f"❌ Xatolik yuz berdi: {str(e)[:100]}")
 
 # Veb-ping xizmati Render uchun
 async def handle_ping(request):
