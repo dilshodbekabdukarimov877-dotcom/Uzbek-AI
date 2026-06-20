@@ -10,31 +10,40 @@ from aiohttp import web
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# Tokenlar (Render panelida sozlanadi, kod ichiga yozish shart emas!)
+# Tokenlar (Render panelida qoladi, ularga tegmang)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY") # Bu yerda sizning OpenRouter API kalitingiz turibdi
 
-# O'zgaruvchilarni tekshirish
 if not TELEGRAM_TOKEN or not CLAUDE_API_KEY:
-    raise ValueError("TELEGRAM_TOKEN yoki CLAUDE_API_KEY muhit o'zgaruvchilari topilmadi!")
+    raise ValueError("TELEGRAM_TOKEN yoki CLAUDE_API_KEY topilmadi!")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
-claude_client = AsyncAnthropic(api_key=CLAUDE_API_KEY)
+
+# MANA SHU YERDA: OpenRouter manzili va kerakli sarlavhalarni ko'rsatamiz
+claude_client = AsyncAnthropic(
+    api_key=CLAUDE_API_KEY,
+    base_url="https://openrouter.ai/api/v1",
+    default_headers={
+        "HTTP-Referer": "https://render.com", # Majburiy emas, lekin OpenRouter uchun yaxshi
+        "X-Title": "Telegram Claude Bot"
+    }
+)
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     await message.answer(
         f"Salom, {html.bold(message.from_user.full_name)}!\n"
-        f"Men Render'da 24/7 ishlaydigan Claude AI botman."
+        f"Men OpenRouter orqali Claude modelida ishlaydigan botman."
     )
 
 @dp.message()
 async def claude_ai_handler(message: Message) -> None:
     waiting_message = await message.answer("💡 <i>O'ylayapman...</i>", parse_mode="HTML")
     try:
+        # OpenRouter'dagi aniq Claude model nomi (Model nomini o'zgartirdik!)
         response = await claude_client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="anthropic/claude-3.5-sonnet",
             max_tokens=2000,
             messages=[{"role": "user", "content": message.text}]
         )
@@ -46,7 +55,7 @@ async def claude_ai_handler(message: Message) -> None:
         await waiting_message.delete()
         await message.answer("❌ Xatolik yuz berdi. Birozdan so'ng urinib ko'ring.")
 
-# Render portni tekshirishi uchun kichik veb-ping xizmati
+# Veb-ping xizmati Render uchun
 async def handle_ping(request):
     return web.Response(text="Bot ishlayapti!")
 
@@ -55,16 +64,12 @@ async def start_web_server():
     app.router.add_get('/', handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()
-    # Render avtomatik ravishda PORT muhit o'zgaruvchisini beradi
     port = int(os.getenv("PORT", 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    logging.info(f"Veb-server {port}-portda ishga tushdi.")
 
 async def main() -> None:
-    # Veb serverni orqa fonda ishga tushirish
     asyncio.create_task(start_web_server())
-    # Botni ishga tushirish
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
