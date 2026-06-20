@@ -4,15 +4,15 @@ import asyncio
 from aiogram import Bot, Dispatcher, html
 from aiogram.types import Message
 from aiogram.filters import CommandStart
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from aiohttp import web
 
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# Tokenlar
+# Tokenlar (Render panelidagiga tegmang)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY") # OpenRouter API key
 
 if not TELEGRAM_TOKEN or not CLAUDE_API_KEY:
     raise ValueError("TELEGRAM_TOKEN yoki CLAUDE_API_KEY topilmadi!")
@@ -20,41 +20,47 @@ if not TELEGRAM_TOKEN or not CLAUDE_API_KEY:
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# OpenRouter uchun standart Anthropic klienti sozlamasi
-claude_client = AsyncAnthropic(
+# OpenAI klienti orqali OpenRouter-ga ulanish (Bu universal va eng xatosiz usul)
+client = AsyncOpenAI(
+    base_url="https://openrouter.ai/api/v1",
     api_key=CLAUDE_API_KEY,
-    base_url="https://openrouter.ai/api/v1"
+    default_headers={
+        "HTTP-Referer": "https://render.com",
+        "X-Title": "Telegram Claude Bot"
+    }
 )
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     await message.answer(
         f"Salom, {html.bold(message.from_user.full_name)}!\n"
-        f"Men OpenRouter orqali Claude modelida ishlaydigan botman. Savolingizni bering!"
+        f"Men OpenRouter (Claude 3.5 Sonnet) botiman. Savolingizni bering!"
     )
 
 @dp.message()
 async def claude_ai_handler(message: Message) -> None:
     waiting_message = await message.answer("💡 <i>O'ylayapman...</i>", parse_mode="HTML")
     try:
-        # OpenRouter uchun eng aniq va yangi model nomini yozamiz
-        response = await claude_client.messages.create(
-            model="anthropic/claude-sonnet-latest",
-            max_tokens=2000,
-            messages=[{"role": "user", "content": message.text}]
+        # OpenAI formati bo'yicha so'rov yuborish
+        response = await client.chat.completions.create(
+            model="anthropic/claude-3.5-sonnet",
+            messages=[{"role": "user", "content": message.text}],
+            max_tokens=2000
         )
-        reply_text = response.content[0].text
+        
+        reply_text = response.choices[0].message.content
         await waiting_message.delete()
         await message.answer(reply_text)
+        
     except Exception as e:
-        # Xatolikni Render loglarida aniq ko'rish uchun yozamiz
-        logging.error(f"OpenRouter Xatoligi: {e}")
+        logging.error(f"Xatolik yuz berdi: {e}")
         await waiting_message.delete()
-        await message.answer(f"❌ Xatolik yuz berdi: {str(e)[:100]}")
+        # Xatoni aniq ko'rish uchun foydalanuvchiga qisqa matn qaytaramiz
+        await message.answer(f"❌ Xatolik yuz berdi:\n<code>{str(e)[:150]}</code>", parse_mode="HTML")
 
-# Veb-ping xizmati Render uchun
+# Veb-ping xizmati Render uxlab qolmasligi uchun
 async def handle_ping(request):
-    return web.Response(text="Bot ishlayapti!")
+    return web.Response(text="Bot faol!")
 
 async def start_web_server():
     app = web.Application()
