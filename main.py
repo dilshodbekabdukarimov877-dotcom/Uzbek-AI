@@ -75,7 +75,7 @@ async def claude_ai_handler(message: Message) -> None:
         response = await client.chat.completions.create(
             model="anthropic/claude-sonnet-4.6",
             messages=chat_histories[user_id],
-            max_tokens=2000
+            max_tokens=99999
         )
         
         reply_text = response.choices[0].message.content
