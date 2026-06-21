@@ -67,8 +67,8 @@ async def claude_ai_handler(message: Message) -> None:
     
     # Kontekst juda uzayib ketsa OpenRouter-da xato bermasligi uchun 
     # oxirgi 20 ta xabarni cheklab turamiz
-    if len(chat_histories[user_id]) > 20:
-        chat_histories[user_id] = chat_histories[user_id][-20:]
+    if len(chat_histories[user_id]) > 50:
+        chat_histories[user_id] = chat_histories[user_id][-50:]
 
     try:
         # OpenRouter-ga butun tarixni yuboramiz
