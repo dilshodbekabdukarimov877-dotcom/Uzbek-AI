@@ -73,7 +73,7 @@ async def claude_ai_handler(message: Message) -> None:
     try:
         # OpenRouter-ga butun tarixni yuboramiz
         response = await client.chat.completions.create(
-            model="google/gemini-3.5-flash",
+            model="google/gemma-4-26b-a4b-it:free",
             messages=chat_histories[user_id],
             max_tokens=99999
         )
