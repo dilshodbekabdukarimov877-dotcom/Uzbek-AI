@@ -1,4 +1,4 @@
-import os
+\import os
 import logging
 import asyncio
 import urllib.parse
@@ -8,21 +8,26 @@ from aiogram.filters import CommandStart, Command
 from openai import AsyncOpenAI
 import aiohttp
 from aiohttp import web
+from google import genai
 
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# Tokenlar
+# Tokenlar va API Kalitlar
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENROUTER_API_KEY = os.getenv("CLAUDE_API_KEY")
+OPENROUTER_API_KEY = os.getenv("CLAUDE_API_KEY") # 1-API Key: OpenRouter
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")      # 2-API Key: Google AI Studio
 
 if not TELEGRAM_TOKEN or not OPENROUTER_API_KEY:
     raise ValueError("TELEGRAM_TOKEN yoki CLAUDE_API_KEY topilmadi!")
 
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY topilmadi!")
+
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# OpenRouter Klienti (Matnli AI modellar uchun)
+# 1. OpenRouter Klienti
 openrouter_client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY,
@@ -32,21 +37,26 @@ openrouter_client = AsyncOpenAI(
     }
 )
 
+# 2. Google AI Studio Klienti
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
 # Xotira lug'atlari
 chat_histories = {}
 user_models = {}
 
-# Modellarni aniqlab olamiz (2 ta matnli + 1 ta rasm generatori)
+# Modellarni aniqlab olamiz
 MODEL_GPT = "openai/gpt-oss-20b:free"
 MODEL_NEMOTRON = "nvidia/nemotron-3-ultra-550b-a55b:free"
-MODEL_IMAGE = "free-image-generator"
+MODEL_IMAGE_POLLINATIONS = "free-image-generator"
+MODEL_IMAGE_GEMINI = "gemini-3.1-flash-lite-image" # Google AI Studio Rasm modeli
 
 # Modellarni tanlash uchun tugmalar (Inline Keyboard)
 def get_model_keyboard():
     buttons = [
         [InlineKeyboardButton(text="⚡ GPT-OSS 20B (OpenRouter)", callback_data="set_gpt")],
         [InlineKeyboardButton(text="🚀 Nemotron 3 Ultra (OpenRouter)", callback_data="set_nemotron")],
-        [InlineKeyboardButton(text="🎨 Bepul Rasm Generator (Flux/SD)", callback_data="set_image")]
+        [InlineKeyboardButton(text="🎨 Pollinations AI (Bepul Rasm)", callback_data="set_img_pollinations")],
+        [InlineKeyboardButton(text="✨ Gemini Flash Image (Google AI)", callback_data="set_img_gemini")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -73,7 +83,7 @@ async def command_clear_handler(message: Message) -> None:
     chat_histories[user_id] = []
     await message.answer("🧹 Suhbatingiz tarixi tozalandi!")
 
-# Callback Query handlerlari (Tugmalar bosilganda)
+# Callback Query handlerlari
 @dp.callback_query(F.data == "set_gpt")
 async def process_set_gpt(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -90,12 +100,20 @@ async def process_set_nemotron(callback: CallbackQuery):
     await callback.message.edit_text("🚀 Model <b>Nemotron 3 Ultra</b> ga o'zgartirildi!", parse_mode="HTML")
     await callback.answer()
 
-@dp.callback_query(F.data == "set_image")
-async def process_set_image(callback: CallbackQuery):
+@dp.callback_query(F.data == "set_img_pollinations")
+async def process_set_img_pollinations(callback: CallbackQuery):
     user_id = callback.from_user.id
-    user_models[user_id] = MODEL_IMAGE
+    user_models[user_id] = MODEL_IMAGE_POLLINATIONS
     chat_histories[user_id] = []
-    await callback.message.edit_text("🎨 Model <b>Bepul Rasm Generator</b>ga o'zgartirildi!\n\n<i>Rasm ta'rifini yuboring.</i>", parse_mode="HTML")
+    await callback.message.edit_text("🎨 Model <b>Pollinations AI (Rasm Generator)</b>ga o'zgartirildi!\n\n<i>Rasm ta'rifini yuboring.</i>", parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "set_img_gemini")
+async def process_set_img_gemini(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    user_models[user_id] = MODEL_IMAGE_GEMINI
+    chat_histories[user_id] = []
+    await callback.message.edit_text("✨ Model <b>Gemini Image Generator</b>ga o'zgartirildi!\n\n<i>Rasm ta'rifini yuboring.</i>", parse_mode="HTML")
     await callback.answer()
 
 @dp.message()
@@ -109,9 +127,9 @@ async def ai_handler(message: Message) -> None:
         
     current_model = user_models[user_id]
 
-    # === BEPUL RASM GENERATSIYASI ===
-    if current_model == MODEL_IMAGE:
-        waiting_message = await message.answer("🎨 <i>Rasm chizilyapti, biroz kuting...</i>", parse_mode="HTML")
+    # === RASM GENERATSIYASI 1: POLLINATIONS AI ===
+    if current_model == MODEL_IMAGE_POLLINATIONS:
+        waiting_message = await message.answer("🎨 <i>Pollinations AI orqali rasm chizilyapti...</i>", parse_mode="HTML")
         try:
             encoded_prompt = urllib.parse.quote(message.text)
             image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
@@ -134,7 +152,42 @@ async def ai_handler(message: Message) -> None:
             await message.answer(f"❌ Xatolik yuz berdi:\n<code>{str(e)[:150]}</code>", parse_mode="HTML")
         return
 
-    # === OPENROUTER ORQALI MATNLI CHAT (GPT-OSS / Nemotron 3 Ultra) ===
+    # === RASM GENERATSIYASI 2: GOOGLE GEMINI IMAGE ===
+    if current_model == MODEL_IMAGE_GEMINI:
+        waiting_message = await message.answer("✨ <i>Google Gemini orqali rasm yaratilmoqda...</i>", parse_mode="HTML")
+        try:
+            # Google AI Studio orqali rasm so'rovi
+            response = await asyncio.to_thread(
+                gemini_client.models.generate_content,
+                model=MODEL_IMAGE_GEMINI,
+                contents=message.text
+            )
+
+            # Gemini javobidan rasmni ajratib olish
+            image_bytes = None
+            for candidate in response.candidates:
+                for part in candidate.content.parts:
+                    if part.inline_data:
+                        image_bytes = part.inline_data.data
+                        break
+
+            if image_bytes:
+                photo_file = BufferedInputFile(image_bytes, filename="gemini_image.jpg")
+                await waiting_message.delete()
+                await message.answer_photo(photo=photo_file, caption=f"✨ <b>Gemini Prompt:</b> {message.text}", parse_mode="HTML")
+            else:
+                # Agar model rasmni matn ko'rinishida qaytarsa
+                reply_text = response.text if response.text else "Rasm hosil qilib bo'lmadi."
+                await waiting_message.delete()
+                await message.answer(f"🤖 <b>Gemini javobi:</b>\n{reply_text}", parse_mode="HTML")
+
+        except Exception as e:
+            logging.error(f"Gemini Rasm Xatoligi: {e}")
+            await waiting_message.delete()
+            await message.answer(f"❌ Xatolik yuz berdi:\n<code>{str(e)[:150]}</code>", parse_mode="HTML")
+        return
+
+    # === OPENROUTER ORQALI MATNLI CHAT (GPT / Nemotron) ===
     waiting_message = await message.answer("💡 <i>O'ylayapman...</i>", parse_mode="HTML")
     
     chat_histories[user_id].append({"role": "user", "content": message.text})
@@ -146,17 +199,17 @@ async def ai_handler(message: Message) -> None:
         response = await openrouter_client.chat.completions.create(
             model=current_model,
             messages=chat_histories[user_id],
-            max_tokens=99999
+            max_tokens=1500
         )
-        
         reply_text = response.choices[0].message.content
+
         chat_histories[user_id].append({"role": "assistant", "content": reply_text})
         
         await waiting_message.delete()
         await message.answer(reply_text)
         
     except Exception as e:
-        logging.error(f"OpenRouter Xatoligi: {e}")
+        logging.error(f"AI Xatoligi: {e}")
         await waiting_message.delete()
         await message.answer(f"❌ Xatolik yuz berdi:\n<code>{str(e)[:150]}</code>", parse_mode="HTML")
 
@@ -179,4 +232,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-# test
